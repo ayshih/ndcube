@@ -367,6 +367,11 @@ class NDCubeBase(NDCubeABC, astropy.nddata.NDData, NDCubeSlicingMixin):
         Unit for the dataset. Strings that can be converted to a `~astropy.units.Unit` are allowed.
         Default is `None` which results in dimensionless units.
 
+    index_order : `str`
+        If ``"classic"``, the array indices are in the reverse order of the WCS pixel axes.
+        If ``"pixel"``, the array indices are in the same order of the WCS pixel axes.
+        Defaults to ``"classic"``.
+
     copy : bool, optional
         Indicates whether to save the arguments as copy. `True` copies every attribute
         before saving it while `False` tries to save every parameter as reference.
@@ -379,7 +384,7 @@ class NDCubeBase(NDCubeABC, astropy.nddata.NDData, NDCubeSlicingMixin):
     _global_coords = NDCubeLinkedDescriptor(GlobalCoords)
 
     def __init__(self, data, wcs=None, uncertainty=None, mask=None, meta=None,
-                 unit=None, copy=False, **kwargs):
+                 unit=None, index_order="classic", copy=False, **kwargs):
 
         super().__init__(data, wcs=wcs, uncertainty=uncertainty, mask=mask,
                          meta=meta, unit=unit, copy=copy, **kwargs)
@@ -405,6 +410,11 @@ class NDCubeBase(NDCubeABC, astropy.nddata.NDData, NDCubeSlicingMixin):
         # If meta is axis-aware, make it to have same shape as cube.
         if isinstance(self.meta, NDMetaABC):
             self.meta.data_shape = self.shape
+
+        if index_order in {"classic", "pixel"}:
+            self._index_in_pixel_order = (index_order == "pixel")
+        else:
+            raise ValueError
 
     @property
     def data(self):
@@ -479,8 +489,9 @@ class NDCubeBase(NDCubeABC, astropy.nddata.NDData, NDCubeSlicingMixin):
         wcs = self.combined_wcs
         world_axis_physical_types = np.array(wcs.world_axis_physical_types)
         axis_correlation_matrix = wcs.axis_correlation_matrix
-        return [tuple(world_axis_physical_types[axis_correlation_matrix[:, i]].tolist())
-                for i in range(axis_correlation_matrix.shape[1])][::-1]
+        out = [tuple(world_axis_physical_types[axis_correlation_matrix[:, i]].tolist())
+               for i in range(axis_correlation_matrix.shape[1])]
+        return out if self._index_in_pixel_order else out[::-1]
 
     @property
     def quantity(self):
@@ -507,7 +518,7 @@ class NDCubeBase(NDCubeABC, astropy.nddata.NDData, NDCubeSlicingMixin):
         array-like
             The world coordinates.
         """
-        pixel_shape = self.data.shape[::-1]
+        pixel_shape = self.data.shape if self._index_in_pixel_order else self.data.shape[::-1]
         if pixel_corners:
             pixel_shape = tuple(np.array(pixel_shape) + 1)
             ranges = [np.arange(i) - 0.5 for i in pixel_shape]
@@ -610,13 +621,13 @@ class NDCubeBase(NDCubeABC, astropy.nddata.NDData, NDCubeSlicingMixin):
         # Return in array order.
         # First replace characters in physical types forbidden for namedtuple identifiers.
         identifiers = []
-        for physical_type in world_axis_physical_types[::-1]:
+        for physical_type in (world_axis_physical_types if self._index_in_pixel_order else world_axis_physical_types[::-1]):
             identifier = physical_type.replace(":", "_")
             identifier = identifier.replace(".", "_")
             identifier = identifier.replace("-", "__")
             identifiers.append(identifier)
         CoordValues = namedtuple("CoordValues", identifiers)
-        return CoordValues(*axes_coords[::-1])
+        return CoordValues(*(axes_coords if self._index_in_pixel_order else axes_coords[::-1]))
 
     def crop(self, *points, wcs=None, keepdims=False):
         # The docstring is defined in NDCubeABC
@@ -959,6 +970,7 @@ class NDCube(NDCubeBase):
             new_cube._extra_coords = deepcopy(self.extra_coords)
         if self.global_coords is not None:
             new_cube._global_coords = deepcopy(self.global_coords)
+        new_cube._index_in_pixel_order = self._index_in_pixel_order
         return new_cube
 
     def __neg__(self):
@@ -1337,7 +1349,8 @@ class NDCube(NDCubeBase):
                     handle_mask=handle_mask, new_unit=new_unit, **kwargs)
 
         # Resample WCS
-        new_wcs = ResampledLowLevelWCS(self.wcs.low_level_wcs, bin_shape[::-1])
+        new_wcs = ResampledLowLevelWCS(self.wcs.low_level_wcs,
+                                       bin_shape if self._index_in_pixel_order else bin_shape[::-1])
 
         # If meta is axis-aware, drop axis-awareness for metadata associated with rebinned axes.
         if hasattr(self.meta, "__ndcube_can_rebin__") and self.meta.__ndcube_can_rebin__:

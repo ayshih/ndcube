@@ -179,7 +179,7 @@ class MatplotlibPlotter(BasePlotter):
         if self._ndcube.mask is not None:
             data = np.ma.masked_array(data, self._ndcube.mask)
 
-        if plot_axes.index('x') > plot_axes.index('y'):
+        if (plot_axes.index('x') > plot_axes.index('y')) != self._ndcube._index_in_pixel_order:
             data = data.T
 
         # Plot data

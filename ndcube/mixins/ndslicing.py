@@ -53,4 +53,12 @@ class NDCubeSlicingMixin(NDSlicingMixin):
         if meta_is_sliceable:
             sliced_cube.meta = meta.slice[item]
 
+        sliced_cube._index_in_pixel_order = self._index_in_pixel_order
+
         return sliced_cube
+
+    def _slice_wcs(self, item):
+        """
+        Override the parent class method to slice the WCS in the appropriate order.
+        """
+        return super()._slice_wcs(item[::-1] if self._index_in_pixel_order else item)
